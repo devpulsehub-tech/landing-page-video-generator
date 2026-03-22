@@ -17,12 +17,34 @@ interface RecordingResult {
   metadata: Metadata;
 }
 
+interface CustomOptions {
+  duration: number;
+  customTitle: string;
+  customDescription: string;
+  customLogo: string;
+  customCTA: string;
+  primaryColor: string;
+}
+
 export default function RecorderForm() {
   const [url, setUrl] = useState('');
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<RecordingResult | null>(null);
   const [error, setError] = useState('');
   const [progress, setProgress] = useState('');
+  const [showOptions, setShowOptions] = useState(false);
+  const [options, setOptions] = useState<CustomOptions>({
+    duration: 5,
+    customTitle: '',
+    customDescription: '',
+    customLogo: '',
+    customCTA: 'Visit Site →',
+    primaryColor: '#6366f1',
+  });
+
+  const setOption = <K extends keyof CustomOptions>(key: K, value: CustomOptions[K]) => {
+    setOptions((prev) => ({ ...prev, [key]: value }));
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -32,20 +54,20 @@ export default function RecorderForm() {
     setProgress('Scene 1: Creating intro with logo...');
 
     try {
-      // Auto-add https:// if not present
       let finalUrl = url.trim();
       if (!finalUrl.startsWith('http://') && !finalUrl.startsWith('https://')) {
         finalUrl = 'https://' + finalUrl;
       }
 
+      const scrollMs = Math.round(options.duration * 1000);
       setTimeout(() => setProgress('Scene 2: Recording landing page...'), 3000);
-      setTimeout(() => setProgress('Scene 3: Adding CTA outro...'), 8000);
-      setTimeout(() => setProgress('Finalizing video...'), 12000);
+      setTimeout(() => setProgress('Scene 3: Adding CTA outro...'), 3000 + scrollMs);
+      setTimeout(() => setProgress('Finalizing video...'), 3000 + scrollMs + 3000);
 
       const response = await fetch('/api/record', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: finalUrl }),
+        body: JSON.stringify({ url: finalUrl, options }),
       });
 
       if (!response.ok) {
@@ -63,10 +85,17 @@ export default function RecorderForm() {
     }
   };
 
+  const colorPresets = [
+    '#6366f1', '#a855f7', '#ec4899', '#ef4444',
+    '#f97316', '#eab308', '#22c55e', '#06b6d4',
+    '#3b82f6', '#ffffff',
+  ];
+
   return (
     <div className="space-y-8">
       <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-xl border border-slate-200 dark:border-slate-800 p-8">
         <form onSubmit={handleSubmit} className="space-y-6">
+          {/* URL Input */}
           <div>
             <label htmlFor="url" className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
               Landing Page URL
@@ -85,6 +114,140 @@ export default function RecorderForm() {
               Creates a 3-scene video: Logo intro → Landing page → CTA outro
             </p>
           </div>
+
+          {/* Toggle Custom Options */}
+          <button
+            type="button"
+            onClick={() => setShowOptions((v) => !v)}
+            className="flex items-center gap-2 text-sm font-semibold text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 dark:hover:text-indigo-200 transition-colors cursor-pointer"
+          >
+            <svg
+              className={`w-4 h-4 transition-transform duration-200 ${showOptions ? 'rotate-90' : ''}`}
+              fill="none" viewBox="0 0 24 24" stroke="currentColor"
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+            </svg>
+            {showOptions ? 'Hide' : 'Show'} Custom Options
+          </button>
+
+          {/* Custom Options Panel */}
+          {showOptions && (
+            <div className="space-y-5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 p-6">
+              <h3 className="text-base font-semibold text-slate-800 dark:text-slate-200">🎨 Customize Your Video</h3>
+
+              {/* Duration */}
+              <div>
+                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
+                  Page Recording Duration: <span className="font-bold text-indigo-600 dark:text-indigo-400">{options.duration}s</span>
+                </label>
+                <input
+                  type="range"
+                  min={3}
+                  max={20}
+                  step={1}
+                  value={options.duration}
+                  onChange={(e) => setOption('duration', Number(e.target.value))}
+                  disabled={loading}
+                  className="w-full accent-indigo-600"
+                />
+                <div className="flex justify-between text-xs text-slate-400 mt-1">
+                  <span>3s (short)</span>
+                  <span>10s (balanced)</span>
+                  <span>20s (long)</span>
+                </div>
+              </div>
+
+              {/* Primary Color */}
+              <div>
+                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
+                  Primary Theme Color
+                </label>
+                <div className="flex items-center gap-3 flex-wrap">
+                  {colorPresets.map((color) => (
+                    <button
+                      key={color}
+                      type="button"
+                      onClick={() => setOption('primaryColor', color)}
+                      title={color}
+                      className={`w-8 h-8 rounded-full border-2 transition-transform hover:scale-110 ${options.primaryColor === color
+                          ? 'border-slate-900 dark:border-white scale-110 ring-2 ring-offset-2 ring-indigo-500'
+                          : 'border-transparent'
+                        }`}
+                      style={{ backgroundColor: color }}
+                    />
+                  ))}
+                  <div className="flex items-center gap-2 ml-1">
+                    <input
+                      type="color"
+                      value={options.primaryColor}
+                      onChange={(e) => setOption('primaryColor', e.target.value)}
+                      disabled={loading}
+                      title="Custom color"
+                      className="w-8 h-8 rounded-full cursor-pointer border border-slate-300 dark:border-slate-600 bg-transparent"
+                    />
+                    <span className="text-xs text-slate-500 font-mono">{options.primaryColor}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Custom Logo */}
+              <div>
+                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
+                  Custom Logo URL <span className="text-slate-400 font-normal">(optional — overrides site favicon)</span>
+                </label>
+                <Input
+                  type="url"
+                  value={options.customLogo}
+                  onChange={(e) => setOption('customLogo', e.target.value)}
+                  placeholder="https://example.com/logo.png"
+                  disabled={loading}
+                />
+              </div>
+
+              {/* Custom Title */}
+              <div>
+                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
+                  Custom Title <span className="text-slate-400 font-normal">(optional — overrides scraped title)</span>
+                </label>
+                <Input
+                  type="text"
+                  value={options.customTitle}
+                  onChange={(e) => setOption('customTitle', e.target.value)}
+                  placeholder="e.g. My Awesome Product"
+                  disabled={loading}
+                />
+              </div>
+
+              {/* Custom Description */}
+              <div>
+                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
+                  Custom Description <span className="text-slate-400 font-normal">(optional)</span>
+                </label>
+                <textarea
+                  value={options.customDescription}
+                  onChange={(e) => setOption('customDescription', e.target.value)}
+                  placeholder="e.g. The best tool for your business."
+                  disabled={loading}
+                  rows={2}
+                  className="w-full rounded-md border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-2 text-sm text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none"
+                />
+              </div>
+
+              {/* Custom CTA */}
+              <div>
+                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
+                  Call-to-Action Button Text <span className="text-slate-400 font-normal">(Scene 3)</span>
+                </label>
+                <Input
+                  type="text"
+                  value={options.customCTA}
+                  onChange={(e) => setOption('customCTA', e.target.value)}
+                  placeholder="e.g. Get Started →"
+                  disabled={loading}
+                />
+              </div>
+            </div>
+          )}
 
           <Button
             type="submit"
@@ -160,7 +323,9 @@ export default function RecorderForm() {
                 </svg>
                 <div className="text-sm text-indigo-800 dark:text-indigo-200">
                   <p className="font-semibold mb-1">3-Scene Professional Video</p>
-                  <p className="text-indigo-700 dark:text-indigo-300">Scene 1: Logo intro (3s) → Scene 2: Landing page (5-6s) → Scene 3: CTA outro (3s)</p>
+                  <p className="text-indigo-700 dark:text-indigo-300">
+                    Scene 1: Logo intro (3s) → Scene 2: Landing page ({options.duration}s) → Scene 3: CTA outro (3s)
+                  </p>
                 </div>
               </div>
             </div>
@@ -205,9 +370,9 @@ export default function RecorderForm() {
               <Button
                 onClick={() => {
                   const blob = new Blob([JSON.stringify(result.metadata, null, 2)], { type: 'application/json' });
-                  const url = URL.createObjectURL(blob);
+                  const downloadUrl = URL.createObjectURL(blob);
                   const a = document.createElement('a');
-                  a.href = url;
+                  a.href = downloadUrl;
                   a.download = 'metadata.json';
                   a.click();
                 }}

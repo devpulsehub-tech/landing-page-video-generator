@@ -4,9 +4,40 @@ import { mkdir } from 'fs/promises';
 import { join } from 'path';
 import { existsSync } from 'fs';
 
+interface CustomOptions {
+  duration: number;
+  customTitle: string;
+  customDescription: string;
+  customLogo: string;
+  customCTA: string;
+  primaryColor: string;
+}
+
+// Derive a slightly lighter color for gradient (simple hex manipulation)
+function lightenColor(hex: string, amount = 40): string {
+  try {
+    const num = parseInt(hex.replace('#', ''), 16);
+    const r = Math.min(255, (num >> 16) + amount);
+    const g = Math.min(255, ((num >> 8) & 0xff) + amount);
+    const b = Math.min(255, (num & 0xff) + amount);
+    return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
+  } catch {
+    return hex;
+  }
+}
+
 export async function POST(request: NextRequest) {
   try {
-    const { url } = await request.json();
+    const body = await request.json();
+    const { url } = body;
+    const options: CustomOptions = body.options ?? {
+      duration: 5,
+      customTitle: '',
+      customDescription: '',
+      customLogo: '',
+      customCTA: 'Visit Site →',
+      primaryColor: '#6366f1',
+    };
 
     if (!url) {
       return NextResponse.json({ error: 'URL is required' }, { status: 400 });
@@ -16,6 +47,11 @@ export async function POST(request: NextRequest) {
     if (!existsSync(recordingsDir)) {
       await mkdir(recordingsDir, { recursive: true });
     }
+
+    const primaryColor = options.primaryColor || '#6366f1';
+    const accentColor = lightenColor(primaryColor, 50);
+    const scrollDuration = Math.round((options.duration || 5) * 1000);
+    const ctaText = options.customCTA?.trim() || 'Visit Site →';
 
     // First, get metadata without recording
     const browser = await chromium.launch({ headless: true });
@@ -45,25 +81,31 @@ export async function POST(request: NextRequest) {
     await tempPage.close();
     await tempContext.close();
 
-    // Resolve absolute favicon URL
-    let resolvedFaviconUrl = '';
-    if (metadata.favicon) {
+    // Apply custom overrides
+    const finalTitle = options.customTitle?.trim() || metadata.title;
+    const finalDescription = options.customDescription?.trim() || metadata.description;
+
+    // Resolve favicon or custom logo
+    let resolvedLogoUrl = '';
+    if (options.customLogo?.trim()) {
+      resolvedLogoUrl = options.customLogo.trim();
+    } else if (metadata.favicon) {
       try {
-        resolvedFaviconUrl = metadata.favicon.startsWith('http')
+        resolvedLogoUrl = metadata.favicon.startsWith('http')
           ? metadata.favicon
           : new URL(metadata.favicon, metadata.url).href;
-      } catch { resolvedFaviconUrl = ''; }
+      } catch { resolvedLogoUrl = ''; }
     }
 
-    // Fetch favicon as base64 so setContent scenes work without network (no broken logo)
-    let faviconDataUrl = '';
-    if (resolvedFaviconUrl) {
+    // Fetch logo as base64 so setContent scenes work without network
+    let logoDataUrl = '';
+    if (resolvedLogoUrl) {
       try {
         const { default: https } = await import('https');
         const { default: http } = await import('http');
-        const client = resolvedFaviconUrl.startsWith('https') ? https : http;
-        faviconDataUrl = await new Promise<string>((resolve) => {
-          const req = client.get(resolvedFaviconUrl, { timeout: 3000 }, (res) => {
+        const client = resolvedLogoUrl.startsWith('https') ? https : http;
+        logoDataUrl = await new Promise<string>((resolve) => {
+          const req = client.get(resolvedLogoUrl, { timeout: 3000 }, (res) => {
             const chunks: Buffer[] = [];
             res.on('data', (chunk: Buffer) => chunks.push(chunk));
             res.on('end', () => {
@@ -75,11 +117,11 @@ export async function POST(request: NextRequest) {
           req.on('error', () => resolve(''));
           req.on('timeout', () => { req.destroy(); resolve(''); });
         });
-      } catch { faviconDataUrl = ''; }
+      } catch { logoDataUrl = ''; }
     }
 
-    // Use data URL if available, else fall back to absolute URL
-    const faviconUrl = faviconDataUrl || resolvedFaviconUrl;
+    const logoUrl = logoDataUrl || resolvedLogoUrl;
+    const hasLogo = Boolean(logoUrl);
 
     // Now start recording
     const recordContext = await browser.newContext({
@@ -116,12 +158,11 @@ export async function POST(request: NextRequest) {
       z-index: 1;
     }
     
-    /* Animated glow background */
     .glow-container {
       position: absolute;
       width: 600px;
       height: 600px;
-      background: radial-gradient(circle, rgba(99, 102, 241, 0.15) 0%, transparent 70%);
+      background: radial-gradient(circle, ${primaryColor}26 0%, transparent 70%);
       border-radius: 50%;
       top: 50%;
       left: 50%;
@@ -130,17 +171,16 @@ export async function POST(request: NextRequest) {
       z-index: 0;
     }
     
-    /* Logo with premium glow */
     .logo {
       width: 140px;
       height: 140px;
       margin: 0 auto 40px;
-      background: ${metadata.favicon ? 'transparent' : 'linear-gradient(135deg, #6366f1 0%, #a855f7 100%)'};
+      background: ${hasLogo ? 'transparent' : `linear-gradient(135deg, ${primaryColor} 0%, ${accentColor} 100%)`};
       border-radius: 28px;
       display: flex;
       align-items: center;
       justify-content: center;
-      box-shadow: 0 30px 80px rgba(99, 102, 241, 0.35);
+      box-shadow: 0 30px 80px ${primaryColor}59;
       animation: logoFloat 1.2s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
       position: relative;
       border: 1px solid rgba(255, 255, 255, 0.1);
@@ -151,7 +191,7 @@ export async function POST(request: NextRequest) {
       position: absolute;
       inset: -2px;
       border-radius: 28px;
-      background: linear-gradient(135deg, rgba(99, 102, 241, 0.5) 0%, rgba(168, 85, 247, 0.3) 100%);
+      background: linear-gradient(135deg, ${primaryColor}80 0%, ${accentColor}4d 100%);
       opacity: 0;
       animation: logoGlow 1.2s ease-out forwards;
     }
@@ -164,7 +204,6 @@ export async function POST(request: NextRequest) {
       z-index: 1;
     }
     
-    /* Text with gradient reveal effect */
     .title {
       font-size: 64px;
       font-weight: 800;
@@ -172,7 +211,7 @@ export async function POST(request: NextRequest) {
       margin-bottom: 20px;
       letter-spacing: -1.5px;
       animation: textReveal 1s ease-out 0.2s both;
-      background: linear-gradient(90deg, #6366f1 0%, #a855f7 100%);
+      background: linear-gradient(90deg, ${primaryColor} 0%, ${accentColor} 100%);
       -webkit-background-clip: text;
       -webkit-text-fill-color: transparent;
       background-clip: text;
@@ -207,52 +246,23 @@ export async function POST(request: NextRequest) {
     }
     
     @keyframes logoFloat {
-      0% { 
-        opacity: 0; 
-        transform: scale(0) rotateX(180deg);
-      }
-      100% { 
-        opacity: 1; 
-        transform: scale(1) rotateX(0deg);
-      }
+      0% { opacity: 0; transform: scale(0) rotateX(180deg); }
+      100% { opacity: 1; transform: scale(1) rotateX(0deg); }
     }
     
     @keyframes logoGlow {
-      0% { 
-        opacity: 0;
-        transform: scale(0.8);
-      }
-      50% { 
-        opacity: 1;
-      }
-      100% { 
-        opacity: 0.8;
-        transform: scale(1.05);
-      }
+      0% { opacity: 0; transform: scale(0.8); }
+      50% { opacity: 1; }
+      100% { opacity: 0.8; transform: scale(1.05); }
     }
     
     @keyframes textReveal {
-      from { 
-        opacity: 0; 
-        transform: translateY(30px);
-        clip-path: inset(0 100% 0 0);
-      }
-      to { 
-        opacity: 1; 
-        transform: translateY(0);
-        clip-path: inset(0 0 0 0);
-      }
+      from { opacity: 0; transform: translateY(30px); clip-path: inset(0 100% 0 0); }
+      to { opacity: 1; transform: translateY(0); clip-path: inset(0 0 0 0); }
     }
     
-    @keyframes fadeIn { 
-      from { opacity: 0; } 
-      to { opacity: 1; } 
-    }
-    
-    @keyframes fadeOut { 
-      from { opacity: 1; } 
-      to { opacity: 0; } 
-    }
+    @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+    @keyframes fadeOut { from { opacity: 1; } to { opacity: 0; } }
   </style>
 </head>
 <body>
@@ -260,10 +270,10 @@ export async function POST(request: NextRequest) {
   <div class="watermark">DevPulseHub</div>
   <div class="container">
     <div class="logo">
-      ${faviconUrl ? `<img src="${faviconUrl}" alt="Logo" />` : ''}
+      ${logoUrl ? `<img src="${logoUrl}" alt="Logo" />` : ''}
     </div>
-    <div class="title">${metadata.title}</div>
-    <div class="description">${metadata.description}</div>
+    <div class="title">${finalTitle}</div>
+    <div class="description">${finalDescription}</div>
   </div>
 </body>
 </html>`;
@@ -289,12 +299,11 @@ export async function POST(request: NextRequest) {
       z-index: 1;
     }
     
-    /* Glow effect */
     .glow {
       position: absolute;
       width: 500px;
       height: 500px;
-      background: radial-gradient(circle, rgba(99, 102, 241, 0.12) 0%, transparent 70%);
+      background: radial-gradient(circle, ${primaryColor}1f 0%, transparent 70%);
       border-radius: 50%;
       top: 50%;
       left: 50%;
@@ -307,12 +316,12 @@ export async function POST(request: NextRequest) {
       width: 120px;
       height: 120px;
       margin: 0 auto 30px;
-      background: ${metadata.favicon ? 'transparent' : 'linear-gradient(135deg, #6366f1 0%, #a855f7 100%)'};
+      background: ${hasLogo ? 'transparent' : `linear-gradient(135deg, ${primaryColor} 0%, ${accentColor} 100%)`};
       border-radius: 24px;
       display: flex;
       align-items: center;
       justify-content: center;
-      box-shadow: 0 25px 70px rgba(99, 102, 241, 0.3);
+      box-shadow: 0 25px 70px ${primaryColor}4d;
       animation: logoScale 0.8s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
       position: relative;
       border: 1px solid rgba(255, 255, 255, 0.1);
@@ -331,22 +340,21 @@ export async function POST(request: NextRequest) {
       margin-bottom: 30px;
       letter-spacing: -1px;
       animation: titlePop 0.7s cubic-bezier(0.34, 1.56, 0.64, 1) 0.15s both;
-      background: linear-gradient(90deg, #6366f1 0%, #a855f7 100%);
+      background: linear-gradient(90deg, ${primaryColor} 0%, ${accentColor} 100%);
       -webkit-background-clip: text;
       -webkit-text-fill-color: transparent;
       background-clip: text;
     }
     
-    /* CTA Button with glow */
     .cta-button {
       display: inline-block;
       padding: 18px 60px;
-      background: linear-gradient(135deg, #6366f1 0%, #a855f7 100%);
+      background: linear-gradient(135deg, ${primaryColor} 0%, ${accentColor} 100%);
       color: white;
       font-size: 20px;
       font-weight: 600;
       border-radius: 50px;
-      box-shadow: 0 15px 50px rgba(99, 102, 241, 0.4);
+      box-shadow: 0 15px 50px ${primaryColor}66;
       animation: buttonPulse 0.8s cubic-bezier(0.34, 1.56, 0.64, 1) 0.3s both;
       border: 1px solid rgba(255, 255, 255, 0.15);
       cursor: pointer;
@@ -384,9 +392,7 @@ export async function POST(request: NextRequest) {
       text-transform: uppercase;
     }
     
-    .fade-out { 
-      animation: fadeOut 0.8s ease-out forwards;
-    }
+    .fade-out { animation: fadeOut 0.8s ease-out forwards; }
     
     @keyframes glowPulseOut {
       0% { transform: translate(-50%, -50%) scale(0.8); opacity: 0; }
@@ -395,36 +401,18 @@ export async function POST(request: NextRequest) {
     }
     
     @keyframes logoScale {
-      0% { 
-        opacity: 0;
-        transform: scale(0) rotateY(180deg);
-      }
-      100% { 
-        opacity: 1;
-        transform: scale(1) rotateY(0deg);
-      }
+      0% { opacity: 0; transform: scale(0) rotateY(180deg); }
+      100% { opacity: 1; transform: scale(1) rotateY(0deg); }
     }
     
     @keyframes titlePop {
-      0% { 
-        opacity: 0;
-        transform: scale(0.8) translateY(20px);
-      }
-      100% { 
-        opacity: 1;
-        transform: scale(1) translateY(0);
-      }
+      0% { opacity: 0; transform: scale(0.8) translateY(20px); }
+      100% { opacity: 1; transform: scale(1) translateY(0); }
     }
     
     @keyframes buttonPulse {
-      0% { 
-        opacity: 0;
-        transform: scale(0.9);
-      }
-      100% { 
-        opacity: 1;
-        transform: scale(1);
-      }
+      0% { opacity: 0; transform: scale(0.9); }
+      100% { opacity: 1; transform: scale(1); }
     }
     
     @keyframes buttonShine {
@@ -433,20 +421,11 @@ export async function POST(request: NextRequest) {
     }
     
     @keyframes urlFade {
-      from { 
-        opacity: 0; 
-        transform: translateY(10px);
-      }
-      to { 
-        opacity: 1; 
-        transform: translateY(0);
-      }
+      from { opacity: 0; transform: translateY(10px); }
+      to { opacity: 1; transform: translateY(0); }
     }
     
-    @keyframes fadeOut { 
-      from { opacity: 1; } 
-      to { opacity: 0; } 
-    }
+    @keyframes fadeOut { from { opacity: 1; } to { opacity: 0; } }
   </style>
 </head>
 <body>
@@ -454,10 +433,10 @@ export async function POST(request: NextRequest) {
   <div class="watermark">DevPulseHub</div>
   <div class="container">
     <div class="logo">
-      ${faviconUrl ? `<img src="${faviconUrl}" alt="Logo" />` : ''}
+      ${logoUrl ? `<img src="${logoUrl}" alt="Logo" />` : ''}
     </div>
-    <div class="title">${metadata.title}</div>
-    <div class="cta-button">Visit Site →</div>
+    <div class="title">${finalTitle}</div>
+    <div class="cta-button">${ctaText}</div>
     <div class="url">${url}</div>
   </div>
 </body>
@@ -474,17 +453,13 @@ export async function POST(request: NextRequest) {
     // ========================================
     // SCENE 2: Cinematic Page Reveal
     // ========================================
-    // HARD 5-SECOND SCROLL — wall-clock timer, no steps guessing
-    // navigate with 'commit' = returns as soon as HTTP response starts (~100-300ms, not 5-15s)
     page.goto(url, { waitUntil: 'commit', timeout: 10000 }).catch(() => { });
 
-    // Wait up to 2s for page to have a body before scrolling starts
     await Promise.race([
       page.waitForFunction(() => !!document.body, { timeout: 2000 }).catch(() => { }),
       page.waitForTimeout(2000)
     ]);
 
-    // Inject cinematic entry immediately on top of the page
     await page.addStyleTag({
       content: `
         #cinematic-wrapper {
@@ -536,13 +511,11 @@ export async function POST(request: NextRequest) {
       document.body?.appendChild(wrapper);
     }).catch(() => { });
 
-    // Scroll for EXACTLY 5 seconds — wall clock guarantees duration
-    const scrollDuration = 5000;
+    // Scroll for the user-specified duration
     const scrollStart = Date.now();
     while (Date.now() - scrollStart < scrollDuration) {
       const elapsed = Date.now() - scrollStart;
       const t = elapsed / scrollDuration;
-      // Sine ramp: slow → fast → slow
       const speedMultiplier = Math.sin(t * Math.PI);
       const delta = Math.max(4, 28 * speedMultiplier);
       await page.mouse.wheel(0, delta).catch(() => { });
