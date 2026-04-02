@@ -126,4 +126,4 @@ Contributions are welcome! If you have ideas for new features or improvements, f
 
 ---
 
-Built with ❤️ by [Satish Kolhe](https://github.com/satishkolhe) | [devpulsehub.com](https://devpulsehub.com)
+Built with ❤️ by [devpulsehub.com](https://devpulsehub.com)
